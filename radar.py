@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Данные Telegram
 api_id = int(os.getenv("API_ID"))
-api_hash = int(os.getenv("API_HASH"))
+api_hash = os.getenv("API_HASH")
 source_channel_id = int(os.getenv("SOURCE_CHANNEL_ID"))
 destination_channel_id = int(os.getenv("DESTINATION_CHANNEL_ID"))
 
