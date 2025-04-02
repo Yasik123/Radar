@@ -45,39 +45,40 @@ def clean_message(text):
     text = re.sub(city_pattern, '', text)
     text = re.sub(unwanted_text_pattern, '', text)
     text = text.replace("ㅤ", "").strip()
-
+    
     lines = [line.strip() for line in text.splitlines() if line.strip()]
     formatted_text = "\n\n".join(lines)
     return formatted_text
 
 # Функция отправки и удаления фейкового сообщения
 async def send_fake_message():
-    fake_message = "Это фейковое сообщение, которое будет сразу удалено."
-    # Отправка фейкового сообщения
-    sent_message = await client.send_message(destination_channel_id, fake_message, parse_mode='html')
-    # Задержка, чтобы сообщение успело быть отправлено
-    await asyncio.sleep(2)
-    # Удаление фейкового сообщения
-    await client.delete_messages(destination_channel_id, sent_message.id)
-    logger.info("✅ Фейковое сообщение отправлено и удалено.")
+    try:
+        fake_message = "Это фейковое сообщение, которое будет сразу удалено."
+        sent_message = await client.send_message(destination_channel_id, fake_message, parse_mode='html')
+        await asyncio.sleep(2)
+        await client.delete_messages(destination_channel_id, sent_message.id)
+        logger.info("✅ Фейковое сообщение отправлено и удалено.")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке фейкового сообщения: {e}", exc_info=True)
 
 # Функция для периодической отправки фейковых сообщений
 async def periodic_fake_message():
     while True:
         await send_fake_message()
-        await asyncio.sleep(300)  # Пауза 5 минут (300 секунд)
+        await asyncio.sleep(300)
 
 # Обработчик сообщений
 @client.on(events.NewMessage(chats=source_channel_id))
 async def handler(event):
     try:
+        logger.info("🟢 Обработчик сообщений работает")
         message_text = event.message.raw_text or ""
         message_media = event.message.media
         
         logger.info(f"📩 Новое сообщение: {message_text}")
         
         message_text = clean_message(message_text)
-
+        
         if any(word in message_text for word in blacklist_words) or card_pattern.search(message_text):
             logger.info("🚫 Сообщение заблокировано.")
             return
@@ -91,26 +92,25 @@ async def handler(event):
         else:
             await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
             logger.info("✅ Отправлено текстовое сообщение")
-    
+        
+        await asyncio.sleep(0.1)  # Добавлена небольшая задержка для стабильности
     except Exception as e:
-        logger.error(f"❌ Ошибка обработки сообщения: {e}")
+        logger.error(f"❌ Ошибка обработки сообщения: {e}", exc_info=True)
 
-# Функция запуска Flask
-def run_flask():
-    app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=False, use_reloader=False)
+# Функция запуска Flask в асинхронном режиме
+async def run_flask():
+    loop = asyncio.get_running_loop()
+    server = await loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=False, use_reloader=False))
+    return server
 
 # Основная асинхронная функция
 async def main():
-    # Запуск асинхронной задачи для периодической отправки фейковых сообщений
     asyncio.create_task(periodic_fake_message())
+    asyncio.create_task(run_flask())
     
     await client.start()
     logger.info("🚀 Бот запущен и слушает канал!")
     await client.run_until_disconnected()
 
 if __name__ == "__main__":
-    flask_thread = threading.Thread(target=run_flask)
-    flask_thread.daemon = True
-    flask_thread.start()
-    
     asyncio.run(main())
