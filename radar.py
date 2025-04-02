@@ -12,7 +12,7 @@ logger = logging.getLogger(__name__)
 
 # Данные Telegram
 api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
+api_hash = int(os.getenv("API_HASH"))
 source_channel_id = int(os.getenv("SOURCE_CHANNEL_ID"))
 destination_channel_id = int(os.getenv("DESTINATION_CHANNEL_ID"))
 
@@ -50,6 +50,23 @@ def clean_message(text):
     formatted_text = "\n\n".join(lines)
     return formatted_text
 
+# Функция отправки и удаления фейкового сообщения
+async def send_fake_message():
+    fake_message = "Это фейковое сообщение, которое будет сразу удалено."
+    # Отправка фейкового сообщения
+    sent_message = await client.send_message(destination_channel_id, fake_message, parse_mode='html')
+    # Задержка, чтобы сообщение успело быть отправлено
+    await asyncio.sleep(2)
+    # Удаление фейкового сообщения
+    await client.delete_messages(destination_channel_id, sent_message.id)
+    logger.info("✅ Фейковое сообщение отправлено и удалено.")
+
+# Функция для периодической отправки фейковых сообщений
+async def periodic_fake_message():
+    while True:
+        await send_fake_message()
+        await asyncio.sleep(300)  # Пауза 5 минут (300 секунд)
+
 # Обработчик сообщений
 @client.on(events.NewMessage(chats=source_channel_id))
 async def handler(event):
@@ -74,6 +91,7 @@ async def handler(event):
         else:
             await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
             logger.info("✅ Отправлено текстовое сообщение")
+    
     except Exception as e:
         logger.error(f"❌ Ошибка обработки сообщения: {e}")
 
@@ -83,6 +101,9 @@ def run_flask():
 
 # Основная асинхронная функция
 async def main():
+    # Запуск асинхронной задачи для периодической отправки фейковых сообщений
+    asyncio.create_task(periodic_fake_message())
+    
     await client.start()
     logger.info("🚀 Бот запущен и слушает канал!")
     await client.run_until_disconnected()
