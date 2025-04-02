@@ -25,6 +25,7 @@ card_pattern = re.compile(r'\b(?:\d[ -]*){12,19}\b|\bUA\d{25,}\b')
 url_pattern = re.compile(r'https?://\S+', re.IGNORECASE)
 city_pattern = re.compile(r'Стежити за обстановкою .*? можна тут - \S+', re.IGNORECASE)
 unwanted_text_pattern = re.compile(r'(Підтримати канал, буду вдячний Вам:|🔗Посилання на банку|➡️Підписатися)', re.IGNORECASE)
+city_pattern2 = re.compile(r'Наслідки балістичного удару дивитись тут - \S+', re.IGNORECASE)
 
 extra_text = '🇺🇦 <a href="https://t.me/+9RxqorgcHYZkYTQy">Небесний Вартовий</a>'
 
