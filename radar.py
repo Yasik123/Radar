@@ -54,7 +54,7 @@ def clean_message(text):
 # Функция отправки и удаления фейкового сообщения
 async def send_fake_message():
     try:
-        fake_message = "Это фейковое сообщение, которое будет сразу удалено."
+        fake_message = "."
         sent_message = await client.send_message(destination_channel_id, fake_message, parse_mode='html')
         await asyncio.sleep(2)
         await client.delete_messages(destination_channel_id, sent_message.id)
