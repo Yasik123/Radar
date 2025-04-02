@@ -2,3 +2,4 @@ flask
 telethon
 asyncio
 gunicorn
+requests
