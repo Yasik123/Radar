@@ -44,11 +44,14 @@ def health():
 def clean_message(text):
     text = re.sub(url_pattern, '', text)
     text = re.sub(city_pattern, '', text)
+    text = re.sub(city_pattern2, '', text)
     text = re.sub(unwanted_text_pattern, '', text)
     text = text.replace("ㅤ", "").strip()
     
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    formatted_text = "\n\n".join(lines)
+    filtered_lines = [line for line in lines if len(line.split()) > 1]  # Убираем одиночные случайные слова
+    
+    formatted_text = "\n\n".join(filtered_lines)
     return formatted_text
 
 # Функция отправки и удаления фейкового сообщения
