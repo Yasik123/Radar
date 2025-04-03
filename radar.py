@@ -2,6 +2,7 @@ import re
 import os
 import logging
 import asyncio
+import random
 from collections import deque
 from flask import Flask
 from telethon import TelegramClient, events
@@ -26,9 +27,7 @@ message_queue = deque()
 blacklist_words = {"донат", "підтримати", "реклама", "підписка", "переказ на карту", "пожертва", "допомога", "підтримка", "збір", "задонатити"}
 card_pattern = re.compile(r'\b(?:\d[ -]*){12,19}\b|\bUA\d{25,}\b')
 url_pattern = re.compile(r'https?://\S+', re.IGNORECASE)
-city_pattern = re.compile(r'Стежити за обстановкою .*? можна тут - \S+', re.IGNORECASE)
-unwanted_text_pattern = re.compile(r'(Підтримати канал, буду вдячний Вам:|🔗Посилання на банку|➡️Підписатися)', re.IGNORECASE)
-city_pattern2 = re.compile(r'Наслідки балістичного удару дивитись тут - \S+', re.IGNORECASE)
+unwanted_text_pattern = re.compile(r'(Україна Online \| Підписатись.*|Підтримати канал, буду вдячний Вам:|🔗Посилання на банку|➡️Підписатися)', re.IGNORECASE)
 
 extra_text = '🇺🇦 <a href="https://t.me/+9RxqorgcHYZkYTQy">Небесний Вартовий</a>'
 
@@ -45,17 +44,36 @@ def health():
 
 # Функция очистки и форматирования сообщения
 def clean_message(text):
-    text = re.sub(url_pattern, '', text)
-    text = re.sub(city_pattern, '', text)
-    text = re.sub(city_pattern2, '', text)
-    text = re.sub(unwanted_text_pattern, '', text)
-    text = text.replace("ㅤ", "").strip()
+    text = re.sub(url_pattern, '', text)  # Удаляем ссылки
+    text = re.sub(unwanted_text_pattern, '', text)  # Удаляем рекламные фразы
+    text = text.replace("ㅤ", "").strip()  # Убираем невидимые символы
     
+    # Разбиваем текст на строки и фильтруем короткие
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    filtered_lines = [line for line in lines if len(line.split()) > 1]  # Убираем одиночные случайные слова
-    
+    filtered_lines = [line for line in lines if len(line.split()) > 1]  
+
+    if filtered_lines:
+        filtered_lines[0] = f"<b>{filtered_lines[0]}</b>"  # Делаем заголовок жирным
+
     formatted_text = "\n\n".join(filtered_lines)
     return formatted_text
+
+# Функция отправки и удаления фейкового сообщения
+async def send_fake_message():
+    try:
+        fake_message = "."
+        sent_message = await client.send_message(destination_channel_id, fake_message)
+        await asyncio.sleep(2)
+        await client.delete_messages(destination_channel_id, sent_message.id)
+        logger.info("✅ Фейковое сообщение отправлено и удалено.")
+    except Exception as e:
+        logger.error(f"❌ Ошибка при отправке фейкового сообщения: {e}", exc_info=True)
+
+# Функция для периодической отправки фейковых сообщений
+async def periodic_fake_message():
+    while True:
+        await send_fake_message()
+        await asyncio.sleep(300)  # Каждые 5 минут
 
 # Обработчик сообщений (кладет сообщения в очередь)
 @client.on(events.NewMessage(chats=source_channel_id))
@@ -77,6 +95,7 @@ async def handler(event):
 
         # Кладем сообщение в очередь
         message_queue.append((message_text, message_media))
+        logger.info(f"📥 Добавлено в очередь. Размер очереди: {len(message_queue)}")
     
     except Exception as e:
         logger.error(f"❌ Ошибка обработки сообщения: {e}", exc_info=True)
@@ -98,7 +117,10 @@ async def process_message_queue():
             except Exception as e:
                 logger.error(f"❌ Ошибка при отправке сообщения: {e}", exc_info=True)
 
-        await asyncio.sleep(1)  # Даем Telegram API "отдохнуть"
+        # Рандомная задержка 1-3 секунды (защита от бана)
+        delay = random.uniform(1, 3)
+        logger.info(f"⏳ Задержка перед следующим сообщением: {delay:.2f} сек")
+        await asyncio.sleep(delay)
 
 # Функция запуска Flask в асинхронном режиме
 async def run_flask():
@@ -108,8 +130,9 @@ async def run_flask():
 
 # Основная асинхронная функция
 async def main():
+    asyncio.create_task(periodic_fake_message())  # Фейковые сообщения
     asyncio.create_task(process_message_queue())  # Запускаем обработку очереди сообщений
-    asyncio.create_task(run_flask())
+    asyncio.create_task(run_flask())  # Запускаем Flask API
     
     await client.start()
     logger.info("🚀 Бот запущен и слушает канал!")
