@@ -2,7 +2,7 @@ import re
 import os
 import logging
 import asyncio
-import threading
+from collections import deque
 from flask import Flask
 from telethon import TelegramClient, events
 
@@ -18,6 +18,9 @@ destination_channel_id = int(os.getenv("DESTINATION_CHANNEL_ID"))
 
 # Подключение к Telegram
 client = TelegramClient("session_name", api_id, api_hash)
+
+# Очередь сообщений
+message_queue = deque()
 
 # Фильтры
 blacklist_words = {"донат", "підтримати", "реклама", "підписка", "переказ на карту", "пожертва", "допомога", "підтримка", "збір", "задонатити"}
@@ -54,52 +57,48 @@ def clean_message(text):
     formatted_text = "\n\n".join(filtered_lines)
     return formatted_text
 
-# Функция отправки и удаления фейкового сообщения
-async def send_fake_message():
-    try:
-        fake_message = "."
-        sent_message = await client.send_message(destination_channel_id, fake_message, parse_mode='html')
-        await asyncio.sleep(2)
-        await client.delete_messages(destination_channel_id, sent_message.id)
-        logger.info("✅ Фейковое сообщение отправлено и удалено.")
-    except Exception as e:
-        logger.error(f"❌ Ошибка при отправке фейкового сообщения: {e}", exc_info=True)
-
-# Функция для периодической отправки фейковых сообщений
-async def periodic_fake_message():
-    while True:
-        await send_fake_message()
-        await asyncio.sleep(300)
-
-# Обработчик сообщений
+# Обработчик сообщений (кладет сообщения в очередь)
 @client.on(events.NewMessage(chats=source_channel_id))
 async def handler(event):
     try:
-        logger.info("🟢 Обработчик сообщений работает")
         message_text = event.message.raw_text or ""
         message_media = event.message.media
         
         logger.info(f"📩 Новое сообщение: {message_text}")
         
         message_text = clean_message(message_text)
-        
+
         if any(word in message_text for word in blacklist_words) or card_pattern.search(message_text):
             logger.info("🚫 Сообщение заблокировано.")
             return
-
+        
         if message_text:
             message_text += f"\n\n{extra_text}"
-        
-        if message_media:
-            await client.send_file(destination_channel_id, message_media, caption=message_text, parse_mode='html')
-            logger.info("✅ Отправлено фото с текстом")
-        else:
-            await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
-            logger.info("✅ Отправлено текстовое сообщение")
-        
-        await asyncio.sleep(0.1)  # Добавлена небольшая задержка для стабильности
+
+        # Кладем сообщение в очередь
+        message_queue.append((message_text, message_media))
+    
     except Exception as e:
         logger.error(f"❌ Ошибка обработки сообщения: {e}", exc_info=True)
+
+# Функция, отправляющая сообщения из очереди
+async def process_message_queue():
+    while True:
+        if message_queue:
+            message_text, message_media = message_queue.popleft()  # Берем сообщение из очереди
+            
+            try:
+                if message_media:
+                    await client.send_file(destination_channel_id, message_media, caption=message_text, parse_mode='html')
+                    logger.info("✅ Отправлено фото с текстом")
+                else:
+                    await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
+                    logger.info("✅ Отправлено текстовое сообщение")
+            
+            except Exception as e:
+                logger.error(f"❌ Ошибка при отправке сообщения: {e}", exc_info=True)
+
+        await asyncio.sleep(1)  # Даем Telegram API "отдохнуть"
 
 # Функция запуска Flask в асинхронном режиме
 async def run_flask():
@@ -109,7 +108,7 @@ async def run_flask():
 
 # Основная асинхронная функция
 async def main():
-    asyncio.create_task(periodic_fake_message())
+    asyncio.create_task(process_message_queue())  # Запускаем обработку очереди сообщений
     asyncio.create_task(run_flask())
     
     await client.start()
