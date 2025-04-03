@@ -59,7 +59,7 @@ async def send_fake_message():
     try:
         fake_message = "."
         sent_message = await client.send_message(destination_channel_id, fake_message, parse_mode='html')
-        await asyncio.sleep(1)
+        await asyncio.sleep(2)
         await client.delete_messages(destination_channel_id, sent_message.id)
         logger.info("✅ Фейковое сообщение отправлено и удалено.")
     except Exception as e:
