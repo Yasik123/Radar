@@ -9,11 +9,11 @@ from flask import Flask
 from telethon import TelegramClient, events
 
 # === Настройки окружения ===
-api_id = int(os.getenv("API_ID"))
-api_hash = os.getenv("API_HASH")
-source_channel_id = int(os.getenv("SOURCE_CHANNEL_ID"))
-destination_channel_id = int(os.getenv("DESTINATION_CHANNEL_ID"))
-owner_id = int(os.getenv("OWNER_ID"))  # Твой Telegram ID
+api_id = 17082218
+api_hash = '6015a38682c3f6265ac55a1e35b1240a'
+source_channel_id = -1002279229082
+destination_channel_id = -1002264693466 
+owner_id = 7660007619
 
 # === Логирование ===
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
