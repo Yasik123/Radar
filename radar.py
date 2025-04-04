@@ -14,8 +14,8 @@ logger = logging.getLogger(__name__)
 # Данные Telegram
 api_id = int(os.getenv("API_ID"))
 api_hash = os.getenv("API_HASH")
-source_channel = int(os.getenv("SOURCE_CHANNEL_ID"))
-destination_channel = int(os.getenv("DESTINATION_CHANNEL_ID"))
+source_channel_id = int(os.getenv("SOURCE_CHANNEL_ID"))
+destination_channel_id = int(os.getenv("DESTINATION_CHANNEL_ID"))
 
 # Инициализация Telegram клиента
 client = TelegramClient("session_name", api_id, api_hash)
