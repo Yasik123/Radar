@@ -8,11 +8,17 @@ from telethon import TelegramClient, events
 from telethon.tl.functions.messages import SendMessageRequest, DeleteMessagesRequest
 
 # .env переменные
-api_id = 17082218
-api_hash = '6015a38682c3f6265ac55a1e35b1240a'
-source_channel = -1002279229082
-destination_channel = -1002264693466 
-admin_user_id = 7660007619
+# api_id = 17082218
+# api_hash = '6015a38682c3f6265ac55a1e35b1240a'
+# source_channel = -1002279229082
+# destination_channel = -1002264693466 
+# admin_user_id = 7660007619
+
+api_id = int(os.getenv("API_ID"))
+api_hash = os.getenv("API_HASH")
+source_channel = int(os.getenv("SOURCE_CHANNEL_ID"))
+destination_channel = int(os.getenv("DESTINATION_CHANNEL_ID"))
+admin_user_id = int(os.getenv("ADMIN_USER_ID"))  # для уведомлений в ЛС
 
 # Логирование
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
