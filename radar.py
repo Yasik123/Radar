@@ -42,23 +42,26 @@ def home():
 def health():
     return "OK", 200
 
-# Функция очистки и форматирования сообщения
+# Очистка и форматирование текста
 def clean_message(text):
-    text = re.sub(url_pattern, '', text)  # Удаляем ссылки
-    text = re.sub(unwanted_text_pattern, '', text)  # Удаляем рекламные фразы
-    text = text.replace("ㅤ", "").strip()  # Убираем невидимые символы
+    original = text
+    text = re.sub(url_pattern, '', text)
+    text = re.sub(unwanted_text_pattern, '', text)
+    text = text.replace("ㅤ", "").strip()
     
-    # Разбиваем текст на строки и фильтруем короткие
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    filtered_lines = [line for line in lines if len(line.split()) > 1]  
+    filtered_lines = [line for line in lines if len(line.split()) > 1]
 
     if filtered_lines:
-        filtered_lines[0] = f"<b>{filtered_lines[0]}</b>"  # Делаем заголовок жирным
+        filtered_lines[0] = f"<b>{filtered_lines[0]}</b>"
 
     formatted_text = "\n\n".join(filtered_lines)
+    
+    logger.debug(f"[CLEAN] Исходный текст: {original}")
+    logger.debug(f"[CLEAN] Очищенный текст: {formatted_text}")
     return formatted_text
 
-# Функция отправки и удаления фейкового сообщения
+# Фейковое сообщение
 async def send_fake_message():
     try:
         fake_message = "."
@@ -69,71 +72,78 @@ async def send_fake_message():
     except Exception as e:
         logger.error(f"❌ Ошибка при отправке фейкового сообщения: {e}", exc_info=True)
 
-# Функция для периодической отправки фейковых сообщений
+# Периодическое фейковое сообщение
 async def periodic_fake_message():
     while True:
         await send_fake_message()
-        await asyncio.sleep(300)  # Каждые 5 минут
+        await asyncio.sleep(300)
 
-# Обработчик сообщений (кладет сообщения в очередь)
+# Обработчик новых сообщений
 @client.on(events.NewMessage(chats=source_channel_id))
 async def handler(event):
     try:
         message_text = event.message.raw_text or ""
         message_media = event.message.media
-        
-        logger.info(f"📩 Новое сообщение: {message_text}")
-        
-        message_text = clean_message(message_text)
 
-        if any(word in message_text for word in blacklist_words) or card_pattern.search(message_text):
-            logger.info("🚫 Сообщение заблокировано.")
+        logger.info(f"📩 Получено новое сообщение:\n{message_text}")
+        cleaned_text = clean_message(message_text)
+
+        if not cleaned_text:
+            logger.info("🚫 Сообщение удалено: пустое после очистки")
             return
-        
-        if message_text:
-            message_text += f"\n\n{extra_text}"
 
-        # Кладем сообщение в очередь
-        message_queue.append((message_text, message_media))
-        logger.info(f"📥 Добавлено в очередь. Размер очереди: {len(message_queue)}")
-    
+        if any(word in cleaned_text.lower() for word in blacklist_words):
+            logger.info("🚫 Сообщение удалено: содержит запрещённые слова")
+            return
+
+        if card_pattern.search(cleaned_text):
+            logger.info("🚫 Сообщение удалено: содержит номер карты или IBAN")
+            return
+
+        cleaned_text += f"\n\n{extra_text}"
+        message_queue.append((cleaned_text, message_media))
+        logger.info(f"📥 Сообщение добавлено в очередь. Текущий размер очереди: {len(message_queue)}")
+
     except Exception as e:
         logger.error(f"❌ Ошибка обработки сообщения: {e}", exc_info=True)
 
-# Функция, отправляющая сообщения из очереди
+# Отправка сообщений из очереди
 async def process_message_queue():
     while True:
         if message_queue:
-            message_text, message_media = message_queue.popleft()  # Берем сообщение из очереди
-            
+            message_text, message_media = message_queue.popleft()
             try:
                 if message_media:
-                    await client.send_file(destination_channel_id, message_media, caption=message_text, parse_mode='html')
-                    logger.info("✅ Отправлено фото с текстом")
+                    if hasattr(message_media, 'document') or hasattr(message_media, 'photo'):
+                        await client.send_file(destination_channel_id, message_media, caption=message_text, parse_mode='html')
+                        logger.info("✅ Отправлено сообщение с медиа")
+                    else:
+                        logger.warning("⚠️ Медиа не поддерживается или не загружено, отправка только текста")
+                        await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
                 else:
                     await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
                     logger.info("✅ Отправлено текстовое сообщение")
-            
             except Exception as e:
                 logger.error(f"❌ Ошибка при отправке сообщения: {e}", exc_info=True)
+        else:
+            logger.info("📭 Очередь пуста, ожидаю новые сообщения")
 
-        # Рандомная задержка 1-3 секунды (защита от бана)
         delay = random.uniform(1, 3)
         logger.info(f"⏳ Задержка перед следующим сообщением: {delay:.2f} сек")
         await asyncio.sleep(delay)
 
-# Функция запуска Flask в асинхронном режиме
+# Flask запуск в async
 async def run_flask():
     loop = asyncio.get_running_loop()
-    server = await loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=False, use_reloader=False))
-    return server
+    await loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=False, use_reloader=False))
 
-# Основная асинхронная функция
+# Главная функция
 async def main():
-    asyncio.create_task(periodic_fake_message())  # Фейковые сообщения
-    asyncio.create_task(process_message_queue())  # Запускаем обработку очереди сообщений
-    asyncio.create_task(run_flask())  # Запускаем Flask API
-    
+    logger.info("🟡 Инициализация бота...")
+    asyncio.create_task(periodic_fake_message())
+    asyncio.create_task(process_message_queue())
+    asyncio.create_task(run_flask())
+
     await client.start()
     logger.info("🚀 Бот запущен и слушает канал!")
     await client.run_until_disconnected()
