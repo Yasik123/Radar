@@ -1,143 +1,121 @@
-import re
 import os
-import logging
+import re
 import asyncio
-import random
-from collections import deque
-from flask import Flask
+import logging
+from datetime import datetime, timedelta
+
 from telethon import TelegramClient, events
+from telethon.tl.functions.messages import SendMessageRequest, DeleteMessagesRequest
 
-# Настройка логирования
-logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
-logger = logging.getLogger(__name__)
-
-# Данные Telegram
-# api_id = int(os.getenv("API_ID"))
-# api_hash = os.getenv("API_HASH")
-# source_channel_id = int(os.getenv("SOURCE_CHANNEL_ID"))
-# destination_channel_id = int(os.getenv("DESTINATION_CHANNEL_ID"))
-
+# .env переменные
 api_id = 17082218
 api_hash = '6015a38682c3f6265ac55a1e35b1240a'
-source_channel_id = -1002279229082
-destination_channel_id = -1002264693466 
+source_channel = -1002279229082
+destination_channel = -1002264693466 
+admin_user_id = 7660007619
 
-# Инициализация Telegram клиента
-client = TelegramClient("session_name", api_id, api_hash)
+# Логирование
+logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
+logger = logging.getLogger("RadarBot")
 
-# Очередь сообщений
-message_queue = deque()
+client = TelegramClient("radar_bot", api_id, api_hash)
 
-# Фильтры
-blacklist_words = {"донат", "підтримати", "реклама", "підписка", "переказ на карту", "пожертва", "допомога", "підтримка", "збір", "задонатити"}
-card_pattern = re.compile(r'\b(?:\d[ -]*){12,19}\b|\bUA\d{25,}\b')
-url_pattern = re.compile(r'https?://\S+', re.IGNORECASE)
-unwanted_text_pattern = re.compile(r'(Підписатись.*|Підтримати канал, буду вдячний Вам:|🔗Посилання на банку|➡️Підписатися)', re.IGNORECASE)
+last_message_time = datetime.utcnow()
 
-extra_text = '🇺🇦 <a href="https://t.me/+9RxqorgcHYZkYTQy">Небесний Вартовий</a>'
+# Шаблоны
+subscribe_replace = '🇺🇦 <a href="https://t.me/+9RxqorgcHYZkYTQy">Небесний Вартовий</a>'
+subscribe_pattern = re.compile(r"➡️Підписатися.*", re.IGNORECASE)
+tme_links_pattern = re.compile(r"(https?://t\.me/\S+|\(https?://t\.me/\S+\))")
+lines_to_remove = [
+    re.compile(r"Підписатись.*", re.IGNORECASE),
+    re.compile(r"🔗Посилання.*", re.IGNORECASE),
+    re.compile(r"➡️Підписатися.*", re.IGNORECASE),
+    re.compile(r"ㅤ", re.IGNORECASE),
+    re.compile(r".*Подробиці.*", re.IGNORECASE),
+    re.compile(r".*Стежити.*", re.IGNORECASE)
+]
 
-# Flask API
-app = Flask(__name__)
+# Удаляет строки по шаблону
+def filter_lines(text):
+    lines = text.splitlines()
+    clean_lines = []
+    for line in lines:
+        if any(p.search(line) for p in lines_to_remove):
+            continue
+        clean_lines.append(line.strip())
+    return clean_lines
 
-@app.route('/')
-def home():
-    return "Бот работает!"
+# Обработка сообщения
+def process_message(text):
+    text = subscribe_pattern.sub(subscribe_replace, text)
+    text = tme_links_pattern.sub('', text)
+    lines = filter_lines(text)
+    return "<b>" + lines[0] + "</b>" if lines else None
 
-@app.route('/health')
-def health():
-    return "OK", 200
-
-# Функция очистки и форматирования сообщения
-def clean_message(text):
-    text = re.sub(url_pattern, '', text)
-    text = re.sub(unwanted_text_pattern, '', text)
-    text = text.replace("ㅤ", "").strip()
-
-    lines = [line.strip() for line in text.splitlines() if line.strip()]
-    filtered_lines = [line for line in lines if len(line.split()) > 1]
-
-    if filtered_lines:
-        filtered_lines[0] = f"<b>{filtered_lines[0]}</b>"
-
-    return "\n\n".join(filtered_lines)
-
-# Отправка фейкового сообщения
+# Фейковое сообщение
 async def send_fake_message():
     try:
-        fake_message = "."
-        sent_message = await client.send_message(destination_channel_id, fake_message)
+        msg = await client.send_message(destination_channel, ".")
         await asyncio.sleep(2)
-        await client.delete_messages(destination_channel_id, sent_message.id)
-        logger.info("💬 Фейковое сообщение отправлено и удалено.")
+        await client.delete_messages(destination_channel, msg.id)
+        logger.info("📡 Фейковое сообщение отправлено и удалено.")
     except Exception as e:
-        logger.error(f"Ошибка при отправке фейкового сообщения: {e}", exc_info=True)
+        logger.error(f"Ошибка фейкового сообщения: {e}")
 
-# Периодическая отправка фейков
-async def periodic_fake_message():
+# Проверка бездействия
+async def monitor_inactivity():
+    global last_message_time
     while True:
-        await send_fake_message()
-        await asyncio.sleep(300)  # Каждые 5 минут
+        await asyncio.sleep(600)
+        now = datetime.utcnow()
+        if (now - last_message_time) > timedelta(minutes=10):
+            try:
+                await client.send_message(admin_user_id, "⚠️ БОТ бездействует более 10 минут!")
+                logger.warning("📭 Отправлено предупреждение об бездействии.")
+            except Exception as e:
+                logger.error(f"Ошибка при отправке ЛС админу: {e}")
 
 # Обработка новых сообщений
-@client.on(events.NewMessage(chats=source_channel_id))
+@client.on(events.NewMessage(chats=source_channel))
 async def handler(event):
+    global last_message_time
+    last_message_time = datetime.utcnow()
+
     try:
-        message_text = event.message.raw_text or ""
-        message_media = event.message.media
+        text = event.message.raw_text or ""
+        media = event.message.media
 
-        logger.info(f"📩 Новое сообщение: {message_text[:60]}...")
-
-        message_text = clean_message(message_text)
-
-        if any(word in message_text for word in blacklist_words) or card_pattern.search(message_text):
-            logger.info("🚫 Сообщение заблокировано.")
+        result = process_message(text)
+        if not result:
+            logger.info("🚫 Сообщение отфильтровано полностью.")
             return
 
-        if message_text:
-            message_text += f"\n\n{extra_text}"
-
-        message_queue.append((message_text, message_media))
-        logger.info(f"📥 Добавлено в очередь. Размер: {len(message_queue)}")
+        if media:
+            await client.send_file(destination_channel, media, caption=result, parse_mode='html')
+            logger.info("📤 Отправлено с фото: " + result)
+        else:
+            await client.send_message(destination_channel, result, parse_mode='html')
+            logger.info("✉️ Отправлено текстовое: " + result)
 
     except Exception as e:
-        logger.error(f"Ошибка обработки сообщения: {e}", exc_info=True)
+        logger.error(f"Ошибка при обработке: {e}")
 
-# Отправка сообщений из очереди
-async def process_message_queue():
-    while True:
-        if message_queue:
-            message_text, message_media = message_queue.popleft()
-            try:
-                if message_media:
-                    await client.send_file(destination_channel_id, message_media, caption=message_text, parse_mode='html')
-                    logger.info("✅ Отправлено с медиа.")
-                else:
-                    await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
-                    logger.info("✅ Отправлено без медиа.")
-            except Exception as e:
-                logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)
-        else:
-            await asyncio.sleep(1)
-            continue
-
-        await asyncio.sleep(random.uniform(1, 3))  # Антиспам задержка
-
-# Запуск Flask
-async def run_flask():
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: app.run(host="0.0.0.0", port=int(os.getenv("PORT", 10000)), debug=False, use_reloader=False))
-
-# Главная функция
+# Главный цикл
 async def main():
     await client.start()
-    logger.info("🚀 Бот запущен и подключен к Telegram")
+    logger.info("🚀 Бот запущен.")
 
-    # Параллельные задачи
-    asyncio.create_task(run_flask())
-    asyncio.create_task(periodic_fake_message())
-    asyncio.create_task(process_message_queue())
+    # Запуск фоновых задач
+    asyncio.create_task(monitor_inactivity())
+    asyncio.create_task(fake_loop())
 
     await client.run_until_disconnected()
+
+# Цикл фейков
+async def fake_loop():
+    while True:
+        await send_fake_message()
+        await asyncio.sleep(300)
 
 if __name__ == "__main__":
     asyncio.run(main())
