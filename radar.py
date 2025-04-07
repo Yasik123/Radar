@@ -23,6 +23,10 @@ client = TelegramClient("session_name", api_id, api_hash)
 # Очередь сообщений
 message_queue = deque()
 
+# Сопоставление сообщений: id из источника -> id в целевом канале
+sent_messages_map = {}
+
+# Чёрный список слов
 blacklist_words = {"донат", "підтримати", "реклама", "підписка", "переказ на карту", "пожертва", "допомога", "підтримка", "збір", "задонатити"}
 
 # Фильтры
@@ -68,29 +72,32 @@ def clean_message(text):
 
     return "\n\n".join(filtered_lines)
 
+# Отправка фейкового сообщения
+async def send_fake_message():
+    try:
+        fake_message = "."
+        sent_message = await client.send_message(destination_channel_id, fake_message)
+        await asyncio.sleep(2)
+        await client.delete_messages(destination_channel_id, sent_message.id)
+        logger.info("💬 Фейковое сообщение отправлено и удалено.")
+    except Exception as e:
+        logger.error(f"Ошибка при отправке фейкового сообщения: {e}", exc_info=True)
 
-# Редактирование сообщения в случае появления "upd" или "юпд"
+# Периодическая отправка фейков
+async def periodic_fake_message():
+    while True:
+        await send_fake_message()
+        await asyncio.sleep(300)
+
+# Обработка новых сообщений
 @client.on(events.NewMessage(chats=source_channel_id))
 async def handler(event):
     try:
         message_text = event.message.raw_text or ""
         message_media = event.message.media
-
         logger.info(f"📩 Новое сообщение: {message_text[:60]}...")
 
         message_text = clean_message(message_text)
-
-        # Проверка на наличие "upd" или "юпд" в тексте
-        if 'upd' in message_text.lower() or 'юпд' in message_text.lower():
-            # Ищем последнее отправленное сообщение в целевом канале
-            async for msg in client.iter_messages(destination_channel_id, limit=1):
-                if msg.text:
-                    # Редактируем последнее сообщение
-                    new_text = f"{msg.text}\n\n{message_text}"
-                    await client.edit_message(destination_channel_id, msg.id, new_text)
-                    logger.info("✍️ Сообщение отредактировано.")
-                    return
-
         if any(word in message_text for word in blacklist_words) or card_pattern.search(message_text):
             logger.info("🚫 Сообщение заблокировано.")
             return
@@ -98,32 +105,64 @@ async def handler(event):
         if message_text:
             message_text += f"\n\n{extra_text}"
 
-        message_queue.append((message_text, message_media))
+        message_queue.append(event.message)
         logger.info(f"📥 Добавлено в очередь. Размер: {len(message_queue)}")
 
     except Exception as e:
         logger.error(f"Ошибка обработки сообщения: {e}", exc_info=True)
 
-
 # Отправка сообщений из очереди
 async def process_message_queue():
     while True:
         if message_queue:
-            message_text, message_media = message_queue.popleft()
+            message = message_queue.popleft()
+            message_text = clean_message(message.raw_text or "")
+            message_media = message.media
+
+            if any(word in message_text for word in blacklist_words) or card_pattern.search(message_text):
+                logger.info("🚫 Сообщение из очереди заблокировано.")
+                continue
+
+            if message_text:
+                message_text += f"\n\n{extra_text}"
+
             try:
                 if message_media:
-                    await client.send_file(destination_channel_id, message_media, caption=message_text, parse_mode='html')
-                    logger.info("✅ Отправлено с медиа.")
+                    sent_msg = await client.send_file(destination_channel_id, message_media, caption=message_text, parse_mode='html')
                 else:
-                    await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
-                    logger.info("✅ Отправлено без медиа.")
+                    sent_msg = await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
+
+                sent_messages_map[message.id] = sent_msg.id
+                logger.info("✅ Сообщение отправлено и сохранено.")
             except Exception as e:
                 logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)
         else:
             await asyncio.sleep(1)
             continue
 
-        await asyncio.sleep(random.uniform(1, 3))  # Антиспам задержка
+        await asyncio.sleep(random.uniform(1, 3))
+
+# Обработка редактированных сообщений
+@client.on(events.MessageEdited(chats=source_channel_id))
+async def edited_handler(event):
+    try:
+        source_id = event.message.id
+        if source_id not in sent_messages_map:
+            return
+
+        new_text = clean_message(event.message.raw_text or "")
+        if any(word in new_text for word in blacklist_words) or card_pattern.search(new_text):
+            logger.info("🚫 Обновленное сообщение заблокировано.")
+            return
+
+        if new_text:
+            new_text += f"\n\n{extra_text}"
+
+        dest_id = sent_messages_map[source_id]
+        await client.edit_message(destination_channel_id, dest_id, new_text, parse_mode='html',link_preview=False)
+        logger.info(f"✏️ Обновлено сообщение ID {dest_id} из источника ID {source_id}")
+    except Exception as e:
+        logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
 
 # Запуск Flask
 async def run_flask():
@@ -137,6 +176,7 @@ async def main():
 
     # Параллельные задачи
     asyncio.create_task(run_flask())
+    asyncio.create_task(periodic_fake_message())
     asyncio.create_task(process_message_queue())
 
     await client.run_until_disconnected()
