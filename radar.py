@@ -75,8 +75,8 @@ def clean_message(text):
 # Отправка фейкового сообщения
 async def send_fake_message():
     try:
-        fake_message = "."
-        sent_message = await client.send_message(destination_channel_id, fake_message)
+        invisible_char = '\u2063'  # невидимый символ
+        sent_message = await client.send_message(destination_channel_id, invisible_char)
         await asyncio.sleep(2)
         await client.delete_messages(destination_channel_id, sent_message.id)
         logger.info("💬 Фейковое сообщение отправлено и удалено.")
