@@ -75,8 +75,8 @@ def clean_message(text):
 # Отправка фейкового сообщения
 async def send_fake_message():
     try:
-        invisible_char = '\u2063'  # невидимый символ
-        sent_message = await client.send_message(destination_channel_id, invisible_char)
+        fake_message = "\u2063"
+        sent_message = await client.send_message(destination_channel_id, fake_message)
         await asyncio.sleep(2)
         await client.delete_messages(destination_channel_id, sent_message.id)
         logger.info("💬 Фейковое сообщение отправлено и удалено.")
@@ -105,8 +105,7 @@ async def handler(event):
         if message_text:
             message_text += f"\n\n{extra_text}"
 
-        message_queue.append((message_text, message_media))
-        sent_messages_map[event.message.id] = None  # зарезервируем ID
+        message_queue.append(event.message)
         logger.info(f"📥 Добавлено в очередь. Размер: {len(message_queue)}")
 
     except Exception as e:
@@ -116,11 +115,16 @@ async def handler(event):
 async def process_message_queue():
     while True:
         if message_queue:
-            message_text, message_media = message_queue.popleft()
+            message = message_queue.popleft()
+            message_text = clean_message(message.raw_text or "")
+            message_media = message.media
 
             if any(word in message_text for word in blacklist_words) or card_pattern.search(message_text):
                 logger.info("🚫 Сообщение из очереди заблокировано.")
                 continue
+
+            if message_text:
+                message_text += f"\n\n{extra_text}"
 
             try:
                 if message_media:
@@ -128,12 +132,7 @@ async def process_message_queue():
                 else:
                     sent_msg = await client.send_message(destination_channel_id, message_text, link_preview=False, parse_mode='html')
 
-                # Обновим карту соответствия ID
-                for src_id in list(sent_messages_map.keys()):
-                    if sent_messages_map[src_id] is None:
-                        sent_messages_map[src_id] = sent_msg.id
-                        break
-
+                sent_messages_map[message.id] = sent_msg.id
                 logger.info("✅ Сообщение отправлено и сохранено.")
             except Exception as e:
                 logger.error(f"Ошибка при отправке сообщения: {e}", exc_info=True)
@@ -148,7 +147,7 @@ async def process_message_queue():
 async def edited_handler(event):
     try:
         source_id = event.message.id
-        if source_id not in sent_messages_map or sent_messages_map[source_id] is None:
+        if source_id not in sent_messages_map:
             return
 
         new_text = clean_message(event.message.raw_text or "")
@@ -160,7 +159,7 @@ async def edited_handler(event):
             new_text += f"\n\n{extra_text}"
 
         dest_id = sent_messages_map[source_id]
-        await client.edit_message(destination_channel_id, dest_id, new_text, parse_mode='html', link_preview=False)
+        await client.edit_message(destination_channel_id, dest_id, new_text, parse_mode='html',link_preview=False)
         logger.info(f"✏️ Обновлено сообщение ID {dest_id} из источника ID {source_id}")
     except Exception as e:
         logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
