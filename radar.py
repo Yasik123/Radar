@@ -126,6 +126,11 @@ async def process_message_queue():
             if message_text:
                 message_text += f"\n\n{extra_text}"
 
+            # Пропустить пустые сообщения без медиа
+            if not message_text and not message_media:
+                logger.info("⚠️ Сообщение из очереди оказалось пустым — пропущено.")
+                continue
+
             try:
                 if message_media:
                     sent_msg = await client.send_file(destination_channel_id, message_media, caption=message_text, parse_mode='html')
@@ -157,9 +162,12 @@ async def edited_handler(event):
 
         if new_text:
             new_text += f"\n\n{extra_text}"
+        else:
+            logger.info("⚠️ Обновлённое сообщение оказалось пустым — пропущено.")
+            return
 
         dest_id = sent_messages_map[source_id]
-        await client.edit_message(destination_channel_id, dest_id, new_text, parse_mode='html',link_preview=False)
+        await client.edit_message(destination_channel_id, dest_id, new_text, parse_mode='html', link_preview=False)
         logger.info(f"✏️ Обновлено сообщение ID {dest_id} из источника ID {source_id}")
     except Exception as e:
         logger.error(f"Ошибка при обновлении сообщения: {e}", exc_info=True)
