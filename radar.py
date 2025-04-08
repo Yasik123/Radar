@@ -35,7 +35,6 @@ url_pattern = re.compile(r'https?://\S+', re.IGNORECASE)
 city_pattern = re.compile(r'Стежити за обстановкою .*? можна тут - \S+', re.IGNORECASE)
 city_pattern2 = re.compile(r'Подробиці\s*-\s*t\.me/\S+\s*\(https?://t\.me/\S+?\)', re.IGNORECASE)
 city_pattern3 = re.compile(r'Подробиці\s*-\s*t\.me/\S+', re.IGNORECASE)
-random_letters_pattern = re.compile(r'^\s*[а-яА-Яa-zA-Z]{4,}\s*$', re.MULTILINE)
 unwanted_text_pattern = re.compile(r'(Підтримати канал, буду вдячний Вам:|🔗Посилання на банку)', re.IGNORECASE)
 impact_pattern = re.compile(r'Наслідки.*?дивитись тут\s*-\s*t\.me/\S+(?:\s*\(https?://t\.me/\S+?\))?', re.IGNORECASE)
 lonely_link_pattern = re.compile(r'^\s*[\u2800ㅤ ]*\(https?://t\.me/\S+?\)\s*$', re.MULTILINE | re.IGNORECASE)
@@ -62,10 +61,13 @@ def clean_message(text):
     text = re.sub(unwanted_text_pattern, '', text)
     text = re.sub(city_pattern, '', text)
     text = re.sub(city_pattern2, '', text)
-    text = text.replace("ㅤ", "").strip()
+    text = text.replace("ㅤ", "").replace("\u2800", "").strip()
 
     lines = [line.strip() for line in text.splitlines() if line.strip()]
-    filtered_lines = [line for line in lines if len(line.split()) > 1]
+    filtered_lines = []
+    for line in lines:
+        if len(line.split()) > 1 or 'чисто' in line.lower() or 'загроза' in line.lower():
+            filtered_lines.append(line)
 
     if filtered_lines:
         filtered_lines[0] = f"<b>{filtered_lines[0]}</b>"
@@ -126,7 +128,6 @@ async def process_message_queue():
             if message_text:
                 message_text += f"\n\n{extra_text}"
 
-            # Пропустить пустые сообщения без медиа
             if not message_text and not message_media:
                 logger.info("⚠️ Сообщение из очереди оказалось пустым — пропущено.")
                 continue
@@ -182,7 +183,6 @@ async def main():
     await client.start()
     logger.info("🚀 Бот запущен и подключен к Telegram")
 
-    # Параллельные задачи
     asyncio.create_task(run_flask())
     asyncio.create_task(periodic_fake_message())
     asyncio.create_task(process_message_queue())
